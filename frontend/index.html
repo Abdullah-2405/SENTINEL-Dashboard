@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SOC CTI DASHBOARD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+/* ── DESIGN TOKENS ─────────────────────────────── */
+:root {
+  --bg:         #050810;
+  --surface:    #080d1a;
+  --card:       #0a1020;
+  --border:     #0f2040;
+  --border-glow:#1a3a6a;
+  --accent:     #00d4ff;
+  --accent2:    #0078ff;
+  --green:      #00ff9d;
+  --red:        #ff2a4a;
+  --orange:     #ff7a20;
+  --yellow:     #ffd740;
+  --purple:     #9c47f5;
+  --text:       #c8d8f0;
+  --text-dim:   #4a6080;
+  --text-bright:#e8f4ff;
+  --critical:   #ff2a4a;
+  --high:       #ff7a20;
+  --medium:     #ffd740;
+  --low:        #00d4ff;
+  --font-mono:  'Share Tech Mono', monospace;
+  --font-ui:    'Rajdhani', sans-serif;
+  --font-title: 'Orbitron', sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── SCANLINE OVERLAY ─────────────────────────── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,212,255,.012) 2px, rgba(0,212,255,.012) 4px);
+  pointer-events: none;
+  z-index: 9999;
+  animation: scanmove 8s linear infinite;
+}
+@keyframes scanmove { from { background-position: 0 0; } to { background-position: 0 -400px; } }
+
+/* ── TOP BAR ──────────────────────────────────── */
+#topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: linear-gradient(90deg, #050810 0%, #08122a 50%, #050810 100%);
+  border-bottom: 1px solid var(--border-glow);
+  position: sticky; top: 0; z-index: 100;
+  box-shadow: 0 0 30px rgba(0,120,255,.15);
+}
+#topbar-left { display: flex; align-items: center; gap: 16px; }
+.logo-tag {
+  font-family: var(--font-title);
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--accent);
+  letter-spacing: 4px;
+  text-shadow: 0 0 20px rgba(0,212,255,.6), 0 0 40px rgba(0,212,255,.3);
+}
+.logo-sub { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); letter-spacing: 2px; margin-top: 2px; }
+.threat-level-badge {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 14px;
+  border: 1px solid var(--red);
+  background: rgba(255,42,74,.1);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--red);
+  text-shadow: 0 0 8px var(--red);
+  animation: redglow 2s ease-in-out infinite alternate;
+}
+@keyframes redglow {
+  from { box-shadow: 0 0 8px rgba(255,42,74,.3); }
+  to   { box-shadow: 0 0 18px rgba(255,42,74,.6); }
+}
+.threat-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); animation: blink 1s step-end infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+#topbar-right { display: flex; align-items: center; gap: 16px; }
+#live-clock { font-family: var(--font-mono); font-size: 13px; color: var(--accent); letter-spacing: 1px; }
+#ws-status { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 11px; }
+.ws-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 1.5s ease-in-out infinite; }
+.ws-dot.disconnected { background: var(--red); animation: none; }
+@keyframes pulse { 0%,100% { opacity: 1; box-shadow: 0 0 6px var(--green); } 50% { opacity: .5; box-shadow: none; } }
+
+/* ── NOTIFICATION BANNER ──────────────────────── */
+#notif-bar {
+  display: none;
+  background: rgba(255,42,74,.15);
+  border-bottom: 1px solid var(--red);
+  padding: 8px 24px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--red);
+  text-shadow: 0 0 8px var(--red);
+  animation: slidein .3s ease;
+}
+@keyframes slidein { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ── CONTROLS BAR ─────────────────────────────── */
+#controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.ctrl-group { display: flex; align-items: center; gap: 8px; }
+.ctrl-label { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; }
+
+select, input[type="text"] {
+  background: var(--card);
+  border: 1px solid var(--border-glow);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 6px 10px;
+  outline: none;
+  transition: border-color .2s, box-shadow .2s;
+}
+select:focus, input:focus { border-color: var(--accent); box-shadow: 0 0 8px rgba(0,212,255,.3); }
+select { cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%234a6080'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; padding-right: 24px; }
+
+.btn {
+  padding: 6px 16px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  border: 1px solid var(--border-glow);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: all .2s;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 12px rgba(0,212,255,.25); }
+.btn.primary { border-color: var(--accent2); color: var(--accent); background: rgba(0,120,255,.12); }
+.btn.danger  { border-color: var(--red); color: var(--red); background: rgba(255,42,74,.08); }
+
+#search-box { width: 220px; }
+
+/* ── MAIN GRID ────────────────────────────────── */
+#main-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr) 300px;
+  grid-template-rows: auto;
+  gap: 12px;
+  padding: 12px 24px;
+  min-height: calc(100vh - 120px);
+}
+
+/* ── STAT CARDS (top row) ─────────────────────── */
+.stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  padding: 14px 18px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color .3s;
+  cursor: default;
+}
+.stat-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+}
+.stat-card.critical::before { background: var(--critical); box-shadow: 0 0 12px var(--critical); }
+.stat-card.high::before     { background: var(--high);     box-shadow: 0 0 12px var(--high); }
+.stat-card.medium::before   { background: var(--medium);   box-shadow: 0 0 12px var(--medium); }
+.stat-card.info::before     { background: var(--accent);   box-shadow: 0 0 12px var(--accent); }
+.stat-card:hover { border-color: var(--border-glow); }
+
+.stat-card .sc-label { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); letter-spacing: 2px; text-transform: uppercase; }
+.stat-card .sc-value { font-family: var(--font-title); font-size: 36px; font-weight: 700; margin: 4px 0; line-height: 1; }
+.stat-card.critical .sc-value { color: var(--critical); text-shadow: 0 0 20px rgba(255,42,74,.5); }
+.stat-card.high .sc-value     { color: var(--high);     text-shadow: 0 0 20px rgba(255,122,32,.5); }
+.stat-card.medium .sc-value   { color: var(--medium);   text-shadow: 0 0 20px rgba(255,215,64,.5); }
+.stat-card.info .sc-value     { color: var(--accent);   text-shadow: 0 0 20px rgba(0,212,255,.5); }
+.stat-card .sc-sub { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); }
+.stat-icon { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); font-size: 32px; opacity: .12; }
+
+/* ── PANEL BASE ───────────────────────────────── */
+.panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  transition: border-color .3s;
+}
+.panel:hover { border-color: var(--border-glow); }
+.panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0,120,255,.04);
+  flex-shrink: 0;
+}
+.panel-title {
+  font-family: var(--font-title);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+.panel-badge { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); }
+.expand-btn {
+  background: none;
+  border: 1px solid var(--border-glow);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  cursor: pointer;
+  margin-left: 8px;
+  transition: all .2s;
+}
+.expand-btn:hover { border-color: var(--accent); color: var(--accent); }
+.panel-body { flex: 1; overflow-y: auto; padding: 0; max-height: 280px; }
+.panel-body.expanded { max-height: 600px; }
+.panel-body::-webkit-scrollbar { width: 6px; }
+.panel-body::-webkit-scrollbar-track { background: var(--bg); }
+.panel-body::-webkit-scrollbar-thumb { background: var(--border-glow); border-radius: 3px; }
+.panel-body::-webkit-scrollbar-thumb:hover { background: var(--accent2); }
+
+/* ── LAYOUT AREAS ─────────────────────────────── */
+#stat-row   { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(7, 1fr); gap: 12px; }
+#panel-alerts     { grid-column: 1 / 4; grid-row: 2; min-height: 320px; }
+#panel-vulns      { grid-column: 4 / 6; grid-row: 2; min-height: 320px; }
+#panel-agents     { grid-column: 6 / -1; grid-row: 2 / 4; }
+#panel-charts     { grid-column: 1 / 3; grid-row: 3; min-height: 280px; }
+#panel-timeline   { grid-column: 3 / 5; grid-row: 3; min-height: 280px; }
+#panel-network    { grid-column: 5 / 6; grid-row: 3; min-height: 280px; }
+#panel-fim        { grid-column: 1 / 4; grid-row: 4; min-height: 260px; }
+#panel-logs       { grid-column: 4 / -1; grid-row: 4; min-height: 260px; }
+
+/* ── TABLE ROWS ───────────────────────────────── */
+.trow {
+  display: grid;
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(15,32,64,.8);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  transition: background .15s;
+  cursor: pointer;
+  animation: rowin .3s ease;
+}
+@keyframes rowin { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
+.trow:hover { background: rgba(0,120,255,.08); }
+.trow.new-flash { animation: flashrow .8s ease; }
+@keyframes flashrow { 0%,100% { background: transparent; } 30% { background: rgba(0,212,255,.12); } }
+
+/* Alert grid */
+.alert-row { grid-template-columns: 70px 80px 90px 1fr 90px; gap: 8px; align-items: center; }
+.ts { color: var(--text-dim); font-size: 10px; }
+.sev-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  border: 1px solid;
+  font-family: var(--font-ui);
+}
+.sev-badge.Critical { color: var(--critical); border-color: var(--critical); background: rgba(255,42,74,.12); text-shadow: 0 0 6px var(--critical); }
+.sev-badge.High     { color: var(--high);     border-color: var(--high);     background: rgba(255,122,32,.12); }
+.sev-badge.Medium   { color: var(--medium);   border-color: var(--medium);   background: rgba(255,215,64,.12); }
+.sev-badge.Low      { color: var(--low);      border-color: var(--low);      background: rgba(0,212,255,.12); }
+.cat-tag { color: var(--text-dim); font-size: 10px; }
+.desc { color: var(--text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-tag { color: var(--accent2); font-size: 10px; text-align: right; }
+
+/* Vuln grid */
+.vuln-row { grid-template-columns: 130px 1fr 60px 80px; gap: 8px; align-items: center; }
+.cve-id { color: var(--accent); font-size: 11px; }
+.cvss-score { font-family: var(--font-title); font-size: 14px; font-weight: 700; }
+.cvss-score.c { color: var(--critical); text-shadow: 0 0 8px rgba(255,42,74,.5); }
+.cvss-score.h { color: var(--high); }
+.cvss-score.m { color: var(--medium); }
+.cvss-score.l { color: var(--low); }
+
+/* Network grid */
+.net-row { grid-template-columns: 120px 20px 120px 60px 70px; gap: 6px; align-items: center; }
+.net-action { font-size: 10px; font-weight: 700; }
+.net-action.ALLOW { color: var(--green); }
+.net-action.DROP  { color: var(--red); }
+.net-action.BLOCK { color: var(--orange); }
+
+/* FIM grid */
+.fim-row { grid-template-columns: 70px 70px 1fr 100px; gap: 8px; align-items: center; }
+.fim-type { font-size: 10px; font-weight: 700; }
+.fim-type.added    { color: var(--green); }
+.fim-type.modified { color: var(--orange); }
+.fim-type.deleted  { color: var(--red); }
+.fim-path { font-size: 10px; color: var(--text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Log panel */
+.log-row { grid-template-columns: 70px 60px 80px 1fr; gap: 8px; align-items: center; }
+.log-src { font-size: 10px; color: var(--purple); }
+
+/* ── CHART CANVASES ───────────────────────────── */
+.chart-wrap { padding: 12px; flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
+.chart-wrap canvas { max-height: 220px; }
+
+/* ── AGENT STATUS ─────────────────────────────── */
+.agent-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.agent-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); margin-right: 8px; }
+.agent-dot.offline { background: var(--text-dim); box-shadow: none; }
+.agent-info { flex: 1; }
+.agent-name { color: var(--text-bright); font-size: 12px; }
+.agent-id   { color: var(--text-dim); font-size: 10px; }
+.agent-count { color: var(--accent); font-family: var(--font-title); font-size: 16px; }
+
+/* ── DETAIL MODAL ─────────────────────────────── */
+#modal-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(5,8,16,.85);
+  z-index: 200;
+  backdrop-filter: blur(4px);
+  align-items: center; justify-content: center;
+}
+#modal-overlay.open { display: flex; }
+#modal-box {
+  background: var(--card);
+  border: 1px solid var(--accent2);
+  box-shadow: 0 0 60px rgba(0,120,255,.3);
+  width: 600px;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  animation: modalin .2s ease;
+}
+@keyframes modalin { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
+#modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-glow);
+}
+#modal-title { font-family: var(--font-title); font-size: 13px; letter-spacing: 2px; color: var(--accent); }
+#modal-close { background: none; border: 1px solid var(--border); color: var(--text-dim); cursor: pointer; padding: 4px 10px; font-family: var(--font-mono); font-size: 12px; }
+#modal-close:hover { border-color: var(--red); color: var(--red); }
+#modal-body { padding: 18px; font-family: var(--font-mono); font-size: 12px; }
+.modal-field { margin-bottom: 12px; }
+.modal-field label { display: block; color: var(--text-dim); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
+.modal-field .val { color: var(--text-bright); word-break: break-all; }
+.modal-field .val.mitre { color: var(--purple); }
+.modal-field .val.ip { color: var(--accent); }
+.modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* ── MITRE CHIP ───────────────────────────────── */
+.mitre-chip {
+  display: inline-block; padding: 2px 8px;
+  background: rgba(156,71,245,.15);
+  border: 1px solid rgba(156,71,245,.4);
+  color: var(--purple); font-size: 10px;
+  margin-top: 2px;
+}
+
+/* ── SOUND TOGGLE ─────────────────────────────── */
+#sound-btn { font-size: 16px; background: none; border: 1px solid var(--border); padding: 5px 10px; cursor: pointer; color: var(--text-dim); transition: .2s; }
+#sound-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── TABLE HEADERS ────────────────────────────── */
+.thead {
+  display: grid;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border-glow);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  background: rgba(0,120,255,.04);
+  position: sticky; top: 0; z-index: 1;
+}
+.alert-thead { grid-template-columns: 70px 80px 90px 1fr 90px; gap: 8px; }
+.vuln-thead  { grid-template-columns: 130px 1fr 60px 80px; gap: 8px; }
+.net-thead   { grid-template-columns: 120px 20px 120px 60px 70px; gap: 6px; }
+.fim-thead   { grid-template-columns: 70px 70px 1fr 100px; gap: 8px; }
+.log-thead   { grid-template-columns: 70px 60px 80px 1fr; gap: 8px; }
+
+/* ── EMPTY STATE ──────────────────────────────── */
+.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; color: var(--text-dim); font-family: var(--font-mono); font-size: 12px; gap: 8px; }
+.empty-state .icon { font-size: 32px; opacity: .4; }
+
+/* ── RESPONSIVE ───────────────────────────────── */
+@media (max-width: 1400px) {
+  #main-grid { grid-template-columns: repeat(2, 1fr); }
+  #stat-row  { grid-template-columns: repeat(4, 1fr); }
+  #panel-alerts, #panel-vulns, #panel-agents, #panel-charts, #panel-timeline, #panel-network, #panel-fim, #panel-logs { grid-column: auto; grid-row: auto; }
+}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<header id="topbar">
+  <div id="topbar-left">
+    <div>
+      <div class="logo-tag">SENTINEL SOC</div>
+      <div class="logo-sub">CYBER THREAT INTELLIGENCE DASHBOARD v1.0</div>
+    </div>
+    <div class="threat-level-badge">
+      <div class="threat-dot"></div>
+      <span id="threat-level-text">THREAT LEVEL: HIGH</span>
+    </div>
+  </div>
+  <div id="topbar-right">
+    <button id="sound-btn" title="Toggle alert sounds">🔔</button>
+    <div id="ws-status">
+      <div class="ws-dot" id="ws-dot"></div>
+      <span id="ws-label" style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim)">LIVE</span>
+    </div>
+    <div id="live-clock">--:--:--</div>
+  </div>
+</header>
+
+<!-- NOTIFICATION BAR -->
+<div id="notif-bar" id="notif-bar">
+  ⚠ <span id="notif-text"></span>
+</div>
+
+<!-- CONTROLS -->
+<div id="controls">
+  <div class="ctrl-group">
+    <span class="ctrl-label">TIME</span>
+    <select id="f-time" onchange="applyFilters()">
+      <option value="1">Last 1h</option>
+      <option value="6">Last 6h</option>
+      <option value="24" selected>Last 24h</option>
+      <option value="72">Last 3d</option>
+      <option value="">All Time</option>
+    </select>
+  </div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">SEVERITY</span>
+    <select id="f-severity" onchange="applyFilters()">
+      <option value="">All</option>
+      <option value="Critical">Critical</option>
+      <option value="High">High</option>
+      <option value="Medium">Medium</option>
+      <option value="Low">Low</option>
+    </select>
+  </div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">CATEGORY</span>
+    <select id="f-category" onchange="applyFilters()">
+      <option value="">All</option>
+      <option value="Intrusion">Intrusion</option>
+      <option value="Malware">Malware</option>
+      <option value="Web Attack">Web Attack</option>
+      <option value="Reconnaissance">Reconnaissance</option>
+      <option value="Network Anomaly">Network Anomaly</option>
+      <option value="Firewall Violation">Firewall Violation</option>
+      <option value="File Integrity">File Integrity</option>
+    </select>
+  </div>
+  <div class="ctrl-group">
+    <input type="text" id="search-box" placeholder="Search IP / rule / agent..." oninput="debounceSearch()" />
+  </div>
+  <button class="btn primary" onclick="refreshAll()">↻ REFRESH</button>
+  <button class="btn" onclick="exportCSV('alerts')">⬇ EXPORT ALERTS</button>
+  <button class="btn" onclick="exportCSV('vulnerabilities')">⬇ EXPORT VULNS</button>
+  <div style="margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--text-dim)">
+    API: <span id="api-url-label" style="color:var(--accent)"></span>
+  </div>
+</div>
+
+<!-- MAIN GRID -->
+<div id="main-grid">
+
+  <!-- STAT CARDS ROW -->
+  <div id="stat-row">
+    <div class="stat-card critical">
+      <div class="sc-label">Critical Alerts</div>
+      <div class="sc-value" id="sc-critical">—</div>
+      <div class="sc-sub">LAST 24H</div>
+      <div class="stat-icon">🔴</div>
+    </div>
+    <div class="stat-card high">
+      <div class="sc-label">High Alerts</div>
+      <div class="sc-value" id="sc-high">—</div>
+      <div class="sc-sub">LAST 24H</div>
+      <div class="stat-icon">🟠</div>
+    </div>
+    <div class="stat-card medium">
+      <div class="sc-label">Total Alerts</div>
+      <div class="sc-value" id="sc-total">—</div>
+      <div class="sc-sub">LAST 24H</div>
+      <div class="stat-icon">📊</div>
+    </div>
+    <div class="stat-card critical">
+      <div class="sc-label">Critical CVEs</div>
+      <div class="sc-value" id="sc-cve-crit">—</div>
+      <div class="sc-sub">ACTIVE</div>
+      <div class="stat-icon">💀</div>
+    </div>
+    <div class="stat-card info">
+      <div class="sc-label">Total CVEs</div>
+      <div class="sc-value" id="sc-cve-total">—</div>
+      <div class="sc-sub">SCANNED</div>
+      <div class="stat-icon">🛡</div>
+    </div>
+    <div class="stat-card high">
+      <div class="sc-label">FIM Events</div>
+      <div class="sc-value" id="sc-fim">—</div>
+      <div class="sc-sub">FILE CHANGES</div>
+      <div class="stat-icon">📁</div>
+    </div>
+    <div class="stat-card medium">
+      <div class="sc-label">Blocked Conns</div>
+      <div class="sc-value" id="sc-blocked">—</div>
+      <div class="sc-sub">FIREWALL</div>
+      <div class="stat-icon">🚫</div>
+    </div>
+  </div>
+
+  <!-- LIVE ALERTS PANEL -->
+  <div class="panel" id="panel-alerts">
+    <div class="panel-header">
+      <span class="panel-title">⚡ LIVE THREAT ALERTS</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="panel-badge" id="alert-count-badge">0 events</span>
+        <button class="expand-btn" onclick="toggleExpand('alerts-body', this)">EXPAND ↕</button>
+      </div>
+    </div>
+    <div class="thead alert-thead">
+      <span>TIME</span><span>SEVERITY</span><span>CATEGORY</span><span>DESCRIPTION</span><span>AGENT</span>
+    </div>
+    <div class="panel-body" id="alerts-body">
+      <div class="empty-state"><div class="icon">📡</div><span>Waiting for events...</span></div>
+    </div>
+  </div>
+
+  <!-- VULNERABILITIES PANEL -->
+  <div class="panel" id="panel-vulns">
+    <div class="panel-header">
+      <span class="panel-title">💀 VULNERABILITIES</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="panel-badge" id="vuln-count-badge">0 CVEs</span>
+        <button class="expand-btn" onclick="toggleExpand('vulns-body', this)">EXPAND ↕</button>
+      </div>
+    </div>
+    <div class="thead vuln-thead">
+      <span>CVE ID</span><span>TITLE</span><span>CVSS</span><span>HOST</span>
+    </div>
+    <div class="panel-body" id="vulns-body">
+      <div class="empty-state"><div class="icon">🔍</div><span>No vulnerabilities loaded</span></div>
+    </div>
+  </div>
+
+  <!-- AGENT STATUS PANEL -->
+  <div class="panel" id="panel-agents">
+    <div class="panel-header">
+      <span class="panel-title">🖥 ENDPOINTS</span>
+      <span class="panel-badge" id="agent-count-badge">0 agents</span>
+    </div>
+    <div class="panel-body" id="agents-body">
+      <div class="empty-state"><div class="icon">🖥</div><span>No agents detected</span></div>
+    </div>
+  </div>
+
+  <!-- CHARTS PANEL -->
+  <div class="panel" id="panel-charts">
+    <div class="panel-header">
+      <span class="panel-title">📊 THREAT CATEGORIES</span>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="chart-category"></canvas>
+    </div>
+  </div>
+
+  <!-- TIMELINE PANEL -->
+  <div class="panel" id="panel-timeline">
+    <div class="panel-header">
+      <span class="panel-title">📈 ALERT TIMELINE (24H)</span>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="chart-timeline"></canvas>
+    </div>
+  </div>
+
+  <!-- NETWORK EVENTS PANEL -->
+  <div class="panel" id="panel-network">
+    <div class="panel-header">
+      <span class="panel-title">🌐 NETWORK / FIREWALL</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="panel-badge" id="net-count-badge">0 events</span>
+        <button class="expand-btn" onclick="toggleExpand('network-body', this)">EXPAND ↕</button>
+      </div>
+    </div>
+    <div class="thead net-thead">
+      <span>SRC IP</span><span></span><span>DST IP:PORT</span><span>PROTO</span><span>ACTION</span>
+    </div>
+    <div class="panel-body" id="network-body">
+      <div class="empty-state"><div class="icon">🌐</div><span>No network events</span></div>
+    </div>
+  </div>
+
+  <!-- FIM EVENTS PANEL -->
+  <div class="panel" id="panel-fim">
+    <div class="panel-header">
+      <span class="panel-title">📂 FILE INTEGRITY MONITORING</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="panel-badge" id="fim-count-badge">0 events</span>
+        <button class="expand-btn" onclick="toggleExpand('fim-body', this)">EXPAND ↕</button>
+      </div>
+    </div>
+    <div class="thead fim-thead">
+      <span>TIME</span><span>EVENT</span><span>PATH</span><span>AGENT / USER</span>
+    </div>
+    <div class="panel-body" id="fim-body">
+      <div class="empty-state"><div class="icon">📂</div><span>No FIM events</span></div>
+    </div>
+  </div>
+
+  <!-- UNIFIED LOG PANEL -->
+  <div class="panel" id="panel-logs">
+    <div class="panel-header">
+      <span class="panel-title">📜 UNIFIED LOG STREAM</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="panel-badge" id="log-count-badge">0 entries</span>
+        <button class="expand-btn" onclick="toggleExpand('logs-body', this)">EXPAND ↕</button>
+      </div>
+    </div>
+    <div class="thead log-thead">
+      <span>TIME</span><span>SOURCE</span><span>SEVERITY</span><span>DESCRIPTION</span>
+    </div>
+    <div class="panel-body" id="logs-body">
+      <div class="empty-state"><div class="icon">📜</div><span>No logs loaded</span></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- DETAIL MODAL -->
+<div id="modal-overlay">
+  <div id="modal-box">
+    <div id="modal-header">
+      <span id="modal-title">EVENT DETAIL</span>
+      <button id="modal-close" onclick="closeModal()">✕ CLOSE</button>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+// ── CONFIG ────────────────────────────────────────
+const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:8000'
+  : 'http://localhost:8000'; // Change this to your backend IP
+
+const WS_URL = API_BASE.replace('http', 'ws') + '/ws';
+const API_SECRET = 'soc-lab-secret-key-change-in-prod';
+
+// Generate auth token (must match backend)
+async function getToken() {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(API_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode('soc-dashboard'));
+  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+let TOKEN = '';
+let soundEnabled = true;
+let ws = null;
+let chartCategory = null;
+let chartTimeline = null;
+let maxRows = 10;
+
+document.getElementById('api-url-label').textContent = API_BASE;
+
+// ── CLOCK ─────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('live-clock').textContent =
+    now.toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── AUTH TOKEN ────────────────────────────────────
+async function init() {
+  TOKEN = await getToken();
+  await refreshAll();
+  connectWS();
+  setInterval(refreshStats, 30000);
+}
+
+// ── API HELPER ────────────────────────────────────
+async function apiFetch(path, params = {}) {
+  const url = new URL(API_BASE + path);
+  Object.entries(params).forEach(([k, v]) => v !== '' && v != null && url.searchParams.set(k, v));
+  try {
+    const r = await fetch(url, { headers: { 'Authorization': `Bearer ${TOKEN}` } });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (e) {
+    console.warn('API error:', e);
+    return null;
+  }
+}
+
+// ── FILTER PARAMS ─────────────────────────────────
+function getFilters() {
+  return {
+    severity: document.getElementById('f-severity').value,
+    category: document.getElementById('f-category').value,
+    hours: document.getElementById('f-time').value,
+    search: document.getElementById('search-box').value,
+    limit: 200,
+  };
+}
+
+// ── REFRESH ALL ───────────────────────────────────
+async function refreshAll() {
+  await Promise.all([
+    refreshStats(),
+    refreshAlerts(),
+    refreshVulns(),
+    refreshFIM(),
+    refreshNetwork(),
+    refreshLogs(),
+  ]);
+}
+
+function applyFilters() { refreshAll(); }
+
+let searchTimer;
+function debounceSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(applyFilters, 400);
+}
+
+// ── STATS ─────────────────────────────────────────
+async function refreshStats() {
+  const hours = document.getElementById('f-time').value || 24;
+  const data = await apiFetch('/stats/summary', { hours });
+  if (!data) return;
+  const ov = data.overview;
+  setText('sc-critical', ov.critical_alerts ?? 0);
+  setText('sc-high', ov.high_alerts ?? 0);
+  setText('sc-total', ov.total_alerts ?? 0);
+  setText('sc-cve-crit', ov.critical_vulnerabilities ?? 0);
+  setText('sc-cve-total', ov.total_vulnerabilities ?? 0);
+  setText('sc-fim', ov.fim_events ?? 0);
+  setText('sc-blocked', ov.blocked_connections ?? 0);
+
+  // Threat level
+  const crit = ov.critical_alerts ?? 0;
+  const tlText = crit >= 10 ? 'CRITICAL' : crit >= 5 ? 'HIGH' : crit >= 2 ? 'ELEVATED' : 'GUARDED';
+  document.getElementById('threat-level-text').textContent = `THREAT LEVEL: ${tlText}`;
+
+  // Agents
+  renderAgents(data.agents || []);
+  setText('agent-count-badge', (data.agents || []).length + ' agents');
+
+  // Charts
+  renderCategoryChart(data.categories || {});
+  renderTimelineChart(data.timeline || []);
+}
+
+// ── ALERTS ────────────────────────────────────────
+async function refreshAlerts() {
+  const f = getFilters();
+  const data = await apiFetch('/alerts', f);
+  if (!data) return;
+  setText('alert-count-badge', data.total + ' events');
+  renderAlerts(data.data || [], 'alerts-body', false);
+}
+
+function renderAlerts(items, containerId, prepend = false) {
+  const body = document.getElementById(containerId);
+  if (!items.length && !prepend) {
+    body.innerHTML = `<div class="empty-state"><div class="icon">📡</div><span>No alerts matching filters</span></div>`;
+    return;
+  }
+  if (!prepend) body.innerHTML = '';
+  
+  const frag = document.createDocumentFragment();
+  items.slice(0, 10).forEach(a => {
+    const row = document.createElement('div');
+    row.className = 'trow alert-row' + (prepend ? ' new-flash' : '');
+    row.onclick = () => showAlertDetail(a);
+    const t = fmtTime(a.timestamp);
+    const mitre = a.mitre_tactic ? `<span class="mitre-chip">${a.mitre_tactic.substring(0,12)}</span>` : '';
+    row.innerHTML = `
+      <span class="ts">${t}</span>
+      <span class="sev-badge ${a.severity}">${a.severity}</span>
+      <span class="cat-tag">${a.category || 'Unknown'}</span>
+      <span class="desc">${escHtml(a.rule_description || '')} ${mitre}</span>
+      <span class="agent-tag">${escHtml(a.agent_name || '')}</span>
+    `;
+    if (prepend) {
+      body.insertBefore(row, body.firstChild);
+      // Keep max rows
+      while (body.children.length > maxRows) body.removeChild(body.lastChild);
+    } else {
+      frag.appendChild(row);
+    }
+  });
+  if (!prepend) body.appendChild(frag);
+}
+
+// ── VULNERABILITIES ───────────────────────────────
+async function refreshVulns() {
+  const f = getFilters();
+  const data = await apiFetch('/vulnerabilities', { severity: f.severity, hours: f.hours, limit: 10 });
+  if (!data) return;
+  setText('vuln-count-badge', data.total + ' CVEs');
+  const body = document.getElementById('vulns-body');
+  if (!data.data.length) {
+    body.innerHTML = `<div class="empty-state"><div class="icon">🔍</div><span>No vulnerabilities found</span></div>`;
+    return;
+  }
+  body.innerHTML = data.data.map(v => {
+    const cls = v.cvss_score >= 9 ? 'c' : v.cvss_score >= 7 ? 'h' : v.cvss_score >= 4 ? 'm' : 'l';
+    return `<div class="trow vuln-row" onclick='showVulnDetail(${JSON.stringify(v)})'>
+      <span class="cve-id">${escHtml(v.cve_id)}</span>
+      <span class="desc">${escHtml(v.title || '')}</span>
+      <span class="cvss-score ${cls}">${v.cvss_score?.toFixed(1) ?? '?'}</span>
+      <span class="agent-tag">${escHtml(v.affected_host || '')}</span>
+    </div>`;
+  }).join('');
+}
+
+// ── FIM ───────────────────────────────────────────
+async function refreshFIM() {
+  const f = getFilters();
+  const data = await apiFetch('/fim-events', { hours: f.hours, limit: 10 });
+  if (!data) return;
+  setText('fim-count-badge', data.total + ' events');
+  const body = document.getElementById('fim-body');
+  if (!data.data.length) {
+    body.innerHTML = `<div class="empty-state"><div class="icon">📂</div><span>No FIM events</span></div>`;
+    return;
+  }
+  body.innerHTML = data.data.map(f => `
+    <div class="trow fim-row" onclick='showFIMDetail(${JSON.stringify(f)})'>
+      <span class="ts">${fmtTime(f.timestamp)}</span>
+      <span class="fim-type ${f.event_type}">${(f.event_type||'').toUpperCase()}</span>
+      <span class="fim-path">${escHtml(f.file_path || '')}</span>
+      <span class="agent-tag">${escHtml(f.agent_name || '')} / ${escHtml(f.user || 'SYSTEM')}</span>
+    </div>
+  `).join('');
+}
+
+// ── NETWORK ───────────────────────────────────────
+async function refreshNetwork() {
+  const f = getFilters();
+  const data = await apiFetch('/network-events', { hours: f.hours, search: f.search, severity: f.severity, limit: 10 });
+  if (!data) return;
+  setText('net-count-badge', data.total + ' events');
+  const body = document.getElementById('network-body');
+  if (!data.data.length) {
+    body.innerHTML = `<div class="empty-state"><div class="icon">🌐</div><span>No network events</span></div>`;
+    return;
+  }
+  body.innerHTML = data.data.map(n => `
+    <div class="trow net-row">
+      <span class="ts">${escHtml(n.src_ip || '')}</span>
+      <span style="color:var(--text-dim)">→</span>
+      <span class="ts">${escHtml(n.dst_ip || '')}:${n.dst_port || '?'}</span>
+      <span class="cat-tag">${escHtml(n.protocol || '')}</span>
+      <span class="net-action ${n.action}">${escHtml(n.action || '')}</span>
+    </div>
+  `).join('');
+}
+
+// ── LOGS ──────────────────────────────────────────
+async function refreshLogs() {
+  const f = getFilters();
+  const data = await apiFetch('/logs', { hours: f.hours || 24, limit: 10 });
+  if (!data) return;
+  setText('log-count-badge', data.total + ' entries');
+  const body = document.getElementById('logs-body');
+  if (!data.data.length) {
+    body.innerHTML = `<div class="empty-state"><div class="icon">📜</div><span>No logs</span></div>`;
+    return;
+  }
+  body.innerHTML = data.data.map(l => {
+    const sev = l.severity || 'Low';
+    const desc = l.rule_description || l.title || l.file_path || `${l.src_ip}→${l.dst_ip}` || 'Event';
+    return `<div class="trow log-row">
+      <span class="ts">${fmtTime(l.timestamp)}</span>
+      <span class="log-src">${escHtml(l.source || '').toUpperCase()}</span>
+      <span class="sev-badge ${sev}" style="font-size:9px;padding:1px 6px">${sev}</span>
+      <span class="desc">${escHtml(desc.substring(0, 80))}</span>
+    </div>`;
+  }).join('');
+}
+
+// ── AGENTS ────────────────────────────────────────
+function renderAgents(agents) {
+  const body = document.getElementById('agents-body');
+  if (!agents.length) {
+    body.innerHTML = `<div class="empty-state"><div class="icon">🖥</div><span>No agents reporting</span></div>`;
+    return;
+  }
+  body.innerHTML = agents.map(a => {
+    const lastSeen = a.last_seen ? new Date(a.last_seen) : null;
+    const minsAgo = lastSeen ? Math.round((Date.now() - lastSeen.getTime()) / 60000) : 999;
+    const online = minsAgo < 60;
+    return `<div class="agent-item">
+      <div class="agent-dot ${online ? '' : 'offline'}"></div>
+      <div class="agent-info">
+        <div class="agent-name">${escHtml(a.name || a.id)}</div>
+        <div class="agent-id">ID: ${escHtml(a.id)} · ${online ? minsAgo + 'm ago' : 'OFFLINE'}</div>
+      </div>
+      <div class="agent-count">${a.alert_count || 0}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── CHARTS ────────────────────────────────────────
+function renderCategoryChart(categories) {
+  const labels = Object.keys(categories);
+  const values = Object.values(categories);
+  const colors = ['#ff2a4a','#ff7a20','#ffd740','#00d4ff','#9c47f5','#00ff9d','#0078ff','#888'];
+
+  const ctx = document.getElementById('chart-category').getContext('2d');
+  if (chartCategory) chartCategory.destroy();
+  chartCategory = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{ data: values, backgroundColor: colors.slice(0, labels.length), borderColor: '#050810', borderWidth: 2 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      plugins: {
+        legend: { position: 'right', labels: { color: '#4a6080', font: { family: "'Share Tech Mono'", size: 10 }, boxWidth: 12, padding: 8 } }
+      }
+    }
+  });
+}
+
+function renderTimelineChart(timeline) {
+  const labels = timeline.map(t => t.time ? t.time.substring(11, 16) : '');
+  const values = timeline.map(t => t.count);
+
+  const ctx = document.getElementById('chart-timeline').getContext('2d');
+  if (chartTimeline) chartTimeline.destroy();
+  chartTimeline = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Alerts/hr',
+        data: values,
+        borderColor: '#00d4ff',
+        backgroundColor: 'rgba(0,212,255,.08)',
+        tension: 0.4,
+        fill: true,
+        pointBackgroundColor: '#00d4ff',
+        pointRadius: 3,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      scales: {
+        x: { ticks: { color: '#4a6080', font: { size: 9, family: "'Share Tech Mono'" } }, grid: { color: '#0f2040' } },
+        y: { ticks: { color: '#4a6080', font: { size: 9, family: "'Share Tech Mono'" } }, grid: { color: '#0f2040' }, beginAtZero: true }
+      },
+      plugins: { legend: { display: false } }
+    }
+  });
+}
+
+// ── WEBSOCKET ─────────────────────────────────────
+function connectWS() {
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    setWsStatus(true);
+    console.log('[WS] Connected');
+  };
+
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'ping') return;
+
+    if (msg.type === 'new_alert') {
+      renderAlerts([msg.data], 'alerts-body', true);
+      bumpStat('sc-total');
+      if (msg.data.severity === 'Critical') {
+        bumpStat('sc-critical');
+        showNotif(`🔴 CRITICAL: ${msg.data.rule_description} on ${msg.data.agent_name}`, 8000);
+        playAlert('critical');
+      } else if (msg.data.severity === 'High') {
+        bumpStat('sc-high');
+        playAlert('high');
+      }
+    }
+    if (msg.type === 'new_fim') {
+      bumpStat('sc-fim');
+      refreshFIM();
+      showNotif(`📂 FIM: ${msg.data.event_type?.toUpperCase()} ${msg.data.file_path}`, 5000);
+    }
+    if (msg.type === 'new_vulnerability') {
+      bumpStat('sc-cve-total');
+      if (msg.data.severity === 'Critical') bumpStat('sc-cve-crit');
+      refreshVulns();
+    }
+    if (msg.type === 'new_network') {
+      if (['DROP','BLOCK'].includes(msg.data.action)) bumpStat('sc-blocked');
+      refreshNetwork();
+    }
+  };
+
+  ws.onerror = () => setWsStatus(false);
+  ws.onclose = () => {
+    setWsStatus(false);
+    setTimeout(connectWS, 5000);
+  };
+}
+
+function setWsStatus(ok) {
+  const dot = document.getElementById('ws-dot');
+  const label = document.getElementById('ws-label');
+  dot.className = 'ws-dot' + (ok ? '' : ' disconnected');
+  label.textContent = ok ? 'LIVE' : 'OFFLINE';
+  label.style.color = ok ? 'var(--green)' : 'var(--red)';
+}
+
+// ── NOTIFICATIONS ─────────────────────────────────
+let notifTimer;
+function showNotif(text, duration = 5000) {
+  const bar = document.getElementById('notif-bar');
+  document.getElementById('notif-text').textContent = text;
+  bar.style.display = 'block';
+  clearTimeout(notifTimer);
+  notifTimer = setTimeout(() => bar.style.display = 'none', duration);
+}
+
+// ── SOUND ─────────────────────────────────────────
+const soundBtn = document.getElementById('sound-btn');
+soundBtn.onclick = () => {
+  soundEnabled = !soundEnabled;
+  soundBtn.textContent = soundEnabled ? '🔔' : '🔕';
+};
+
+function playAlert(level) {
+  if (!soundEnabled) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = level === 'critical' ? 880 : 660;
+    gain.gain.value = 0.1;
+    osc.start();
+    osc.stop(ctx.currentTime + (level === 'critical' ? 0.3 : 0.15));
+  } catch(e) {}
+}
+
+// ── MODALS ────────────────────────────────────────
+function showAlertDetail(a) {
+  const body = document.getElementById('modal-body');
+  body.innerHTML = `
+    <div class="modal-grid">
+      <div class="modal-field"><label>Timestamp</label><div class="val">${escHtml(a.timestamp || '')}</div></div>
+      <div class="modal-field"><label>Severity</label><div class="val"><span class="sev-badge ${a.severity}">${a.severity}</span></div></div>
+      <div class="modal-field"><label>Rule ID</label><div class="val">${escHtml(a.rule_id || '')} (Level ${a.rule_level})</div></div>
+      <div class="modal-field"><label>Category</label><div class="val">${escHtml(a.category || '')}</div></div>
+      <div class="modal-field"><label>Agent</label><div class="val">${escHtml(a.agent_name || '')} (${a.agent_id})</div></div>
+      <div class="modal-field"><label>Source IP</label><div class="val ip">${escHtml(a.src_ip || 'N/A')}</div></div>
+    </div>
+    <div class="modal-field"><label>Description</label><div class="val">${escHtml(a.rule_description || '')}</div></div>
+    ${a.mitre_tactic ? `<div class="modal-field"><label>MITRE ATT&CK</label><div class="val mitre">${escHtml(a.mitre_tactic)} · ${escHtml(a.mitre_technique || '')}</div></div>` : ''}
+    ${a.raw_log ? `<div class="modal-field"><label>Raw Log</label><div class="val" style="font-size:10px;color:var(--text-dim);background:var(--bg);padding:8px;margin-top:4px;word-break:break-all">${escHtml(a.raw_log.substring(0,500))}</div></div>` : ''}
+  `;
+  document.getElementById('modal-title').textContent = 'ALERT DETAIL — ' + (a.rule_id || '');
+  openModal();
+}
+
+function showVulnDetail(v) {
+  const body = document.getElementById('modal-body');
+  const cls = v.cvss_score >= 9 ? 'c' : v.cvss_score >= 7 ? 'h' : v.cvss_score >= 4 ? 'm' : 'l';
+  body.innerHTML = `
+    <div class="modal-grid">
+      <div class="modal-field"><label>CVE ID</label><div class="val" style="color:var(--accent)">${escHtml(v.cve_id)}</div></div>
+      <div class="modal-field"><label>CVSS Score</label><div class="cvss-score ${cls}" style="font-size:24px">${v.cvss_score?.toFixed(1)}</div></div>
+      <div class="modal-field"><label>Severity</label><div class="val"><span class="sev-badge ${v.severity}">${v.severity}</span></div></div>
+      <div class="modal-field"><label>Affected Host</label><div class="val ip">${escHtml(v.affected_host || '')}</div></div>
+      <div class="modal-field"><label>Service / Port</label><div class="val">${escHtml(v.affected_service || '')} : ${v.port || 'N/A'}</div></div>
+      <div class="modal-field"><label>Plugin ID</label><div class="val">${escHtml(v.plugin_id || 'N/A')}</div></div>
+    </div>
+    <div class="modal-field"><label>Title</label><div class="val" style="color:var(--text-bright);font-size:13px">${escHtml(v.title || '')}</div></div>
+    <div class="modal-field"><label>Description</label><div class="val" style="color:var(--text-dim);font-size:11px">${escHtml(v.description || '')}</div></div>
+    ${v.solution ? `<div class="modal-field"><label>Solution</label><div class="val" style="color:var(--green);font-size:11px">${escHtml(v.solution)}</div></div>` : ''}
+  `;
+  document.getElementById('modal-title').textContent = 'VULNERABILITY — ' + v.cve_id;
+  openModal();
+}
+
+function showFIMDetail(f) {
+  const body = document.getElementById('modal-body');
+  body.innerHTML = `
+    <div class="modal-grid">
+      <div class="modal-field"><label>Event Type</label><div class="fim-type ${f.event_type}" style="font-size:16px">${(f.event_type||'').toUpperCase()}</div></div>
+      <div class="modal-field"><label>Timestamp</label><div class="val">${escHtml(f.timestamp||'')}</div></div>
+      <div class="modal-field"><label>Agent</label><div class="val">${escHtml(f.agent_name||'')} (${f.agent_id})</div></div>
+      <div class="modal-field"><label>User</label><div class="val ip">${escHtml(f.user||'SYSTEM')}</div></div>
+    </div>
+    <div class="modal-field"><label>File Path</label><div class="val" style="color:var(--text-bright)">${escHtml(f.file_path||'')}</div></div>
+    ${f.md5 ? `<div class="modal-field"><label>MD5</label><div class="val" style="font-size:11px">${escHtml(f.md5)}</div></div>` : ''}
+    ${f.sha256 ? `<div class="modal-field"><label>SHA256</label><div class="val" style="font-size:10px">${escHtml(f.sha256)}</div></div>` : ''}
+  `;
+  document.getElementById('modal-title').textContent = 'FIM EVENT DETAIL';
+  openModal();
+}
+
+function openModal() { document.getElementById('modal-overlay').classList.add('open'); }
+function closeModal() { document.getElementById('modal-overlay').classList.remove('open'); }
+document.getElementById('modal-overlay').onclick = (e) => { if (e.target === document.getElementById('modal-overlay')) closeModal(); };
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// ── EXPORT ────────────────────────────────────────
+async function exportCSV(source) {
+  const f = getFilters();
+  const url = `${API_BASE}/export/csv?source=${source}&hours=${f.hours||24}`;
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${source}-export.csv`;
+  link.click();
+}
+
+// ── UTILS ─────────────────────────────────────────
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
+function bumpStat(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const cur = parseInt(el.textContent) || 0;
+  el.textContent = cur + 1;
+  el.style.transform = 'scale(1.3)';
+  setTimeout(() => el.style.transform = '', 200);
+}
+
+function fmtTime(ts) {
+  if (!ts) return '--:--';
+  const d = new Date(ts);
+  return d.toTimeString().substring(0, 8);
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── EXPAND TOGGLE ─────────────────────────────────
+function toggleExpand(bodyId, btn) {
+  const body = document.getElementById(bodyId);
+  const isExpanded = body.classList.toggle('expanded');
+  btn.textContent = isExpanded ? 'COLLAPSE ↑' : 'EXPAND ↕';
+  btn.style.color = isExpanded ? 'var(--accent)' : '';
+  btn.style.borderColor = isExpanded ? 'var(--accent)' : '';
+}
+
+// ── START ─────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
